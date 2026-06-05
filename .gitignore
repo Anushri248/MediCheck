@@ -1,8 +1,5 @@
-venv/
 node_modules/
-__pycache__/
+venv/
+backend/instance/medicheck.db
 .env
-.DS_Store
-build/
-dist/
-*.log
+__pycache__/

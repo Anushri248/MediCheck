@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Button, Form } from 'react-bootstrap';
 import PatientTable from '../components/PatientTable';
 import PatientModal from '../components/PatientModal';
+import PatientDetailModal from '../components/PatientDetailModal';
+import { reanalysePatient } from '../services/api';
 
 const AnimatedNumber = ({ value }) => {
   const [count, setCount] = useState(0);
@@ -42,8 +44,40 @@ const Dashboard = () => {
   const [patients, setPatients] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState(null);
+  
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [viewingPatient, setViewingPatient] = useState(null);
+  
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    fetchPatients();
+  }, []);
+
+  const fetchPatients = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:5000/api/patients');
+      if (response.ok) {
+        const data = await response.json();
+        const mappedData = data.map(p => ({
+          id: p.id,
+          fullName: p.full_name,
+          gender: p.gender,
+          dob: p.date_of_birth,
+          email: p.email,
+          glucose: p.glucose,
+          haemoglobin: p.haemoglobin,
+          cholesterol: p.cholesterol,
+          remarks: p.remarks,
+          createdAt: p.created_at
+        }));
+        setPatients(mappedData);
+      }
+    } catch (error) {
+      console.error('Failed to fetch patients:', error);
+    }
+  };
 
   const handleOpenModal = (patient = null) => {
     setSelectedPatient(patient);
@@ -55,36 +89,89 @@ const Dashboard = () => {
     setSelectedPatient(null);
   };
 
-  const handleSavePatient = (patientData) => {
-    if (selectedPatient) {
-      // Edit mode
-      setPatients(patients.map(p => p.id === selectedPatient.id ? { ...p, ...patientData } : p));
-    } else {
-      // Add mode
-      const newPatient = {
-        ...patientData,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString(),
-        remarks: 'Processing by AI...' 
+  const handleViewPatient = (patient) => {
+    setViewingPatient(patient);
+    setShowDetailModal(true);
+  };
+
+  const handleSavePatient = async (patientData) => {
+    try {
+      const isEdit = !!patientData.id || !!selectedPatient;
+      const patientId = patientData.id || (selectedPatient ? selectedPatient.id : null);
+      
+      const url = isEdit 
+        ? `http://127.0.0.1:5000/api/patients/${patientId}`
+        : 'http://127.0.0.1:5000/api/patients';
+        
+      const apiPayload = {
+        full_name: patientData.fullName,
+        gender: patientData.gender,
+        date_of_birth: patientData.dob,
+        email: patientData.email,
+        glucose: patientData.glucose,
+        haemoglobin: patientData.haemoglobin,
+        cholesterol: patientData.cholesterol
       };
-      setPatients([...patients, newPatient]);
+        
+      const response = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(apiPayload)
+      });
+      
+      if (response.ok) {
+        await fetchPatients();
+        const savedData = await response.json();
+        return savedData;
+      } else {
+        const errorData = await response.json();
+        alert('Validation Failed: ' + JSON.stringify(errorData.details || errorData.error));
+        return null;
+      }
+    } catch (error) {
+      console.error('Error saving patient:', error);
+      alert('Error connecting to server.');
     }
-    handleCloseModal();
   };
 
-  const handleDeletePatient = (patientId) => {
-    setPatients(patients.filter(p => p.id !== patientId));
+  const handleDeletePatient = async (patientId) => {
+    try {
+      const response = await fetch(`http://127.0.0.1:5000/api/patients/${patientId}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        await fetchPatients(); // refresh data
+      }
+    } catch (error) {
+      console.error('Error deleting patient:', error);
+    }
   };
 
-  // Helper functions for categorization
+  const parseRiskLevel = (remarks) => {
+    if (!remarks) return null;
+    if (typeof remarks === 'object') return remarks.risk_level;
+    try {
+      const parsed = JSON.parse(remarks);
+      return parsed.risk_level;
+    } catch (e) {
+      return null;
+    }
+  };
+
   const isAtRisk = (remarks) => {
-    if (!remarks) return false;
+    const riskLevel = parseRiskLevel(remarks);
+    if (riskLevel === 'HIGH') return true;
+    
+    if (!remarks || typeof remarks !== 'string') return false;
     const lower = remarks.toLowerCase();
     return ['risk', 'high', 'elevated', 'danger'].some(word => lower.includes(word));
   };
 
   const needsMonitoring = (remarks) => {
-    if (!remarks) return false;
+    const riskLevel = parseRiskLevel(remarks);
+    if (riskLevel === 'MODERATE') return true;
+    
+    if (!remarks || typeof remarks !== 'string') return false;
     const lower = remarks.toLowerCase();
     return ['moderate', 'borderline', 'monitor'].some(word => lower.includes(word));
   };
@@ -210,6 +297,7 @@ const Dashboard = () => {
       <PatientTable 
         patients={displayPatients} 
         activeFilter={activeFilter}
+        onView={handleViewPatient}
         onEdit={handleOpenModal} 
         onDelete={handleDeletePatient} 
       />
@@ -219,6 +307,12 @@ const Dashboard = () => {
         onHide={handleCloseModal} 
         onSave={handleSavePatient}
         patientData={selectedPatient}
+      />
+
+      <PatientDetailModal
+        show={showDetailModal}
+        onHide={() => setShowDetailModal(false)}
+        patient={viewingPatient}
       />
     </div>
   );
