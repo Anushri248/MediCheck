@@ -1,5 +1,5 @@
 node_modules/
 venv/
 backend/instance/medicheck.db
-.env
+backend/instance/.env
 __pycache__/
